@@ -1,79 +1,115 @@
-# Multiplication Optimization in ARM64 Assembly
+# Optimized Multiplication Generator in ARM64 Assembly
 
-## Description
+## Project Overview
 
-This project automatically generates an ARM64 assembly function `kefel` that multiplies its argument by a constant integer `k`, **without using the multiply instruction**. Instead, it uses only bit shifts (`lsl`), additions (`add`), and subtractions (`sub`), producing an optimized multiplication routine.
+This project automatically generates an ARM64 assembly file (`kefel.s`) that multiplies a 64-bit integer by a constant **k** using only shift (`lsl`), add (`add`), and subtract (`sub`) instructions. By avoiding the generic `mul` instruction, the generated code is faster and uses fewer cycles on ARM64 processors.
 
-The generator (`Kefel.java`) creates the `kefel.s` assembly file, which can be compiled and tested using a provided C test program.
+## Getting Started
 
-## Important Principle
+1. Save your Java generator as `Kefel.java`.
+2. Compile the Java program:
 
-**NOTE:**  
-- The generated assembly file `kefel.s` is valid **only for the specific value of `k`** you choose at generation time (for example, `k=14`). It can only multiply by this constant.
-- If you want to test another multiplier (for example, `k=4`), you **must** re-run `java Kefel 4` to generate a new `kefel.s` and then recompile your test program.  
-- **If you do not regenerate and recompile, the results will be incorrect.**
-
-## Files
-
-- `Kefel.java` : Java generator for the optimized assembly code.
-- `kefel.s`   : Assembly file generated for your chosen multiplier `k`.
-- `test.c`    : C test file to validate the function.
-- `README.md` : This help file.
-
-
-## Full Compilation and Usage
-
-1. **Compile the Java generator:**
-   ```bash
+   ```sh
    javac Kefel.java
    ```
+3. Run the generator with your chosen constant (e.g., k=14):
 
-2. **Generate the assembly code for k=14 (for example):**
-   ```bash
+   ```sh
    java Kefel 14
    ```
 
-3. **Compile the assembly code with the C test program:**
-   ```bash
+   This produces `kefel.s` in the current directory.
+4. Obtain the provided `test.c` driver from the course website.
+5. Compile both files into an executable:
+
+   ```sh
    gcc test.c kefel.s -o test
    ```
+6. Execute and verify the results:
 
-4. **Run the test:**
-   ```bash
+   ```sh
    ./test
    ```
+7. Submit only the `Kefel.java` file.
+8. Clean up your directory:
 
-5. **IMPORTANT:**  
-   When running the test program, you must enter the **same value of `k`** that you used to generate `kefel.s` (for example, if you did `java Kefel 14`, you should enter `14` in the test program).
+   ```sh
+   rm -f Kefel.class kefel.s test
+   ```
 
----
+> The code can be tested on any 64-bit Unix system (Linux, macOS, etc.).
 
-## Example
+## Implementation Details
 
-```bash
-javac Kefel.java
-java Kefel 14
-gcc test.c kefel.s -o test
-./test
+* The Java program reads a single integer argument **k**.
+* It outputs an ARM64 assembly file defining the function `kefel`, which:
 
-Enter k and x: 14 10
+  * Accepts a 64-bit integer in register `x0`.
+  * Returns the product `k * x0` in register `x0`.
 
-Using k * x:
-14 * 10 = 140
+## Optimization Rules
 
-Using kefel(10):
-14 * 10 = 140
+1. **Single 1-bit**: if `k` is a power of two, use one shift.
+   *Example:* k=8 → `lsl x0, x0, #3`.
+2. **Two consecutive 1-bits**: sum of two shifts.
+   *Example:* k=6 → `(x << 2) + (x << 1)`.
+3. **Run of ≥3 consecutive 1-bits**: difference of two shifts.
+   *Example:* k=14 → `(x << 4) - (x << 1)`.
+4. **Fallback**: for all other bit patterns, express `k` as a sum of individual shifts, minimizing redundant `lsl #0` operations.
+5. **File header and label**: every `kefel.s` must start with:
+
+   ```asm
+   .section .text
+   .globl   kefel
+   kefel:
+       // Your optimized code here
+       ret
+   ```
+
+## ARM64 Assembly Examples
+
+### Non-optimized example for k = 14
+
+This version uses three shift/add steps:
+
+```asm
+.section .text
+.globl   kefel
+kefel:
+    // Compute 14*x by summing 8x + 4x + 2x:
+    mov x1, x0        // x1 = x
+    lsl x0, x0, #3    // x0 = x << 3 = 8x
+    mov x2, x1        // x2 = x
+    lsl x2, x2, #2    // x2 = x << 2 = 4x
+    add x0, x0, x2    // x0 = 12x
+    mov x2, x1        // x2 = x
+    lsl x2, x2, #1    // x2 = x << 1 = 2x
+    add x0, x0, x2    // x0 = 14x
+    ret
 ```
 
+### Optimized example for k = 14
+
+This version factors 14 as 16 - 2:
+
+```asm
+.section .text
+.globl   kefel
+kefel:
+    mov x1, x0        // x1 = x
+    lsl x0, x0, #4    // x0 = x << 4 = 16x
+    lsl x1, x1, #1    // x1 = x << 1 = 2x
+    sub x0, x0, x1    // x0 = 16x - 2x = 14x
+    ret
+```
+
+## Testing Recommendations
+
+* Test edge cases: k=0, k=1.
+* Verify powers of two (k=2, 4, 8, ...).
+* Try mixed patterns: k=3 (11₂), k=7 (111₂), k=13 (1101₂), k=21 (10101₂).
+* Ensure the result in `x0` matches a standard multiplication.
+
 ---
 
-## Notes
-
-- To change the multiplier, repeat the process starting from `java Kefel <k>`, then recompile with `gcc`.
-- This program works **only on ARM64 systems** (e.g., Raspberry Pi, Mac M1/M2 running Linux ARM, ARM-based VM, etc.).
-
----
-
-## Authors
-
-- NatanePartouche
+*Generated by Kefel.java*

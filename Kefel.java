@@ -1,165 +1,165 @@
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+
+/**
+ *  Link to my GitHub project on optimized assembly multiplication:
+ *       https://github.com/NatanePartouche/Asm_Mult_Opt.git
+ */
 
 /**
  * Kefel.java
  *
- * ARM64 assembly code generator for optimized multiplication without using the 'mul' instruction.
- * Automatically produces a kefel.s file that contains an assembly function able to compute k * x
- * with a minimal number of instructions (shifts, additions, subtractions).
+ * Generates optimized ARM64 assembly code to multiply an integer by a constant k
+ * using only bit shifts (lsl), addition (add), and subtraction (sub) — avoiding
+ * costly multiplication instructions.
  *
- * General operation:
- * - For a power-of-two multiplier (k = 2^n), uses a single shift.
- * - Otherwise, decomposes k into a sum and/or difference of powers of two
- *   to minimize the number of assembly instructions.
- * - Exclusively compatible with ARM64 (AArch64).
+ * Optimization rules:
+ * 1) k with one '1' bit → single shift
+ * 2) k with two consecutive '1' bits → sum of two shifts
+ * 3) k with three or more consecutive '1' bits → difference of two shifts
+ * 4) General case → sum of all shifts (fallback)
  *
- * Author: Natane Partouche
- * Date: 22/05/2025
+ * Usage:
+ *   javac Kefel.java
+ *   java Kefel <constant k>
  */
 public class Kefel {
-
-    /**
-     * Represents a single term in the decomposition:
-     * "x << shift", either to be added or subtracted.
-     * For example, for k = 14: 14*x = (x << 4) - (x << 1) - x
-     * This would result in three terms, some positive, some negative.
-     */
-    static class Term {
-        int shift;           // How many bits to shift left (equals multiplying by 2^shift)
-        boolean isNegative;  // true if this term is to be subtracted, false otherwise
-
-        Term(int shift, boolean isNegative) {
-            this.shift = shift;
-            this.isNegative = isNegative;
-        }
-    }
-
-    /**
-     * Finds the most compact decomposition (with the fewest instructions) of k
-     * into powers of two, allowing subtractions (e.g., 14 = 16 - 2)
-     * and not just the classic binary sum (e.g., 14 = 8 + 4 + 2).
-     *
-     * @param k The integer multiplier
-     * @return An ordered list of Term objects describing the optimal combination
-     */
-    private static List<Term> decomposeOptimally(int k) {
-        // First attempt: simple binary sum (bit decomposition)
-        List<Term> best = decomposeAsSum(k);
-
-        // Possible improvement: try 2^m - remainder, which may be shorter using subtractions.
-        // (e.g., 15 = 16 - 1, so (x << 4) - x)
-        for (int m = 1; m <= 31; m++) {
-            int pow2 = 1 << m;        // 2 to the power of m
-            int delta = pow2 - k;     // The "remainder" to subtract
-            if (delta > 0) {
-                List<Term> temp = new ArrayList<>();
-                temp.add(new Term(m, false));             // x << m (positive)
-                temp.addAll(decomposeAsSum(delta));       // other terms
-
-                // All the "remainder" terms are negative (to subtract)
-                for (int i = 1; i < temp.size(); i++) {
-                    temp.get(i).isNegative = true;
-                }
-                // If this decomposition is shorter, keep it
-                if (temp.size() < best.size()) {
-                    best = temp;
-                }
-            }
-        }
-        return best;
-    }
-
-    /**
-     * Decomposes an integer as a sum of powers of two, using its binary representation.
-     * Each '1' bit generates a positive term.
-     * Example: 13 = 1101₂ → [x<<3, x<<2, x<<0]
-     */
-    private static List<Term> decomposeAsSum(int n) {
-        List<Term> result = new ArrayList<>();
-        for (int i = 31; i >= 0; i--) {
-            if (((n >> i) & 1) == 1) {
-                result.add(new Term(i, false)); // Positive term corresponding to x << i
-            }
-        }
-        return result;
-    }
-
     public static void main(String[] args) {
-        // Check number of arguments (must be 1: the value of k)
+        // Ensure exactly one command-line argument (the constant k)
         if (args.length != 1) {
-            System.out.println("Usage: java Kefel <k>");
+            System.err.println("Usage: java Kefel <integer_constant_k>");
+            System.exit(1);
+        }
+
+        // Try to parse k as an integer
+        int k;
+        try {
+            k = Integer.parseInt(args[0]);
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid argument: must be an integer.");
             return;
         }
 
-        // Convert input text argument to integer (implicit error handling via NumberFormatException)
-        int k = Integer.parseInt(args[0]);
-        if (k <= 0) {
-            System.out.println("k must be a strictly positive integer.");
-            return;
-        }
+        try (FileWriter out = new FileWriter("kefel.s")) {
+            // Write required ARM64 assembly header
+            out.write(".text\n");
+            out.write(".global kefel\n");
+            out.write("kefel:\n");
 
-        // CASE 1: If k is a power of two, use a single shift (optimal).
-        // This is the fastest and most efficient possible solution.
-        if ((k & (k - 1)) == 0) {
-            int shift = Integer.numberOfTrailingZeros(k); // E.g., k=8 -> shift=3 (since 8=2^3)
-            try (FileWriter writer = new FileWriter("kefel.s")) {
-                writer.write(".text\n");
-                writer.write(".globl kefel\n");
-                writer.write(".type kefel, %function\n");
-                writer.write("kefel:\n");
-                writer.write("    lsl x0, x0, #" + shift + "\n"); // x0 = x0 << shift
-                writer.write("    ret\n");
-                System.out.println("✅ kefel.s ARM64 file generated for power of two k = " + k);
-            } catch (IOException e) {
-                System.err.println("File write error: " + e.getMessage());
+            // Special case: k == 0 → return 0 directly
+            if (k == 0) {
+                out.write("    mov x0, #0    // 0 * x = 0\n");
+                out.write("    ret\n");
+                return;
             }
-            return;
-        }
 
-        // CASE 2: For arbitrary k > 0, decompose k optimally into shifts/adds/subs.
-        List<Term> terms = decomposeOptimally(k);
+            // Special case: k == 1 → return x directly (already in x0)
+            if (k == 1) {
+                out.write("    ret    // 1 * x = x\n");
+                return;
+            }
 
-        try (FileWriter writer = new FileWriter("kefel.s")) {
-            writer.write(".text\n");
-            writer.write(".globl kefel\n");
-            writer.write(".type kefel, %function\n");
-            writer.write("kefel:\n");
+            // Convert k to binary string to analyze bit patterns
+            String bin = Integer.toBinaryString(k);
 
-            // Save the original value (x0) in x2 for multiple shift operations starting from x
-            writer.write("    mov x2, x0\n");
+            // Determine the maximum number of consecutive '1's in the binary string
+            int maxRunLen = 0, current = 0;
+            for (char c : bin.toCharArray()) {
+                if (c == '1') {
+                    current++;
+                    maxRunLen = Math.max(maxRunLen, current);
+                } else {
+                    current = 0;
+                }
+            }
 
+            // Rule 3: If k has a run of ≥3 consecutive '1's → use subtraction
+            if (maxRunLen >= 3) {
+                int startIdx = -1, endIdx = -1;
+                current = 0;
+                for (int i = 0; i < bin.length(); i++) {
+                    if (bin.charAt(i) == '1') {
+                        current++;
+                        if (current == 1) startIdx = i;
+                        if (current == maxRunLen) {
+                            endIdx = i;
+                            break;
+                        }
+                    } else {
+                        current = 0;
+                    }
+                }
+
+                // Compute shift amounts from binary positions
+                int highShift = bin.length() - startIdx;
+                int lowShift  = bin.length() - endIdx - 1;
+
+                // Generate code: (x << high) - (x << low)
+                out.write("    mov x1, x0    // prepare x for subtraction\n");
+                out.write(String.format("    lsl x0, x0, #%d    // x * 2^%d\n", highShift, highShift));
+                if (lowShift != 0) {
+                    out.write(String.format("    lsl x1, x1, #%d    // x * 2^%d\n", lowShift, lowShift));
+                }
+                out.write("    sub x0, x0, x1    // (x << high) - (x << low)\n");
+                out.write("    ret\n");
+                return;
+            }
+
+            // Rule 2: If k has exactly two consecutive '1's → use addition
+            if (maxRunLen == 2) {
+                int pos    = bin.indexOf("11");
+                int shift1 = bin.length() - pos - 1; // leftmost bit
+                int shift2 = bin.length() - pos - 2; // rightmost bit
+
+                // Generate code: (x << shift1) + (x << shift2)
+                out.write("    mov x1, x0    // first shift term\n");
+                out.write(String.format("    lsl x1, x1, #%d    // x * 2^%d\n", shift1, shift1));
+                out.write("    mov x2, x0    // second shift term\n");
+                if (shift2 != 0) {
+                    out.write(String.format("    lsl x2, x2, #%d    // x * 2^%d\n", shift2, shift2));
+                }
+                out.write("    add x0, x1, x2    // sum of two shifts\n");
+                out.write("    ret\n");
+                return;
+            }
+
+            // Rule 1: If k is a power of 2 (only one '1' bit) → use single shift
+            if (Integer.bitCount(k) == 1) {
+                int shift = Integer.numberOfTrailingZeros(k);
+                if (shift != 0) {
+                    out.write(String.format("    lsl x0, x0, #%d    // x * 2^%d\n", shift, shift));
+                }
+                out.write("    ret\n");
+                return;
+            }
+
+            // Rule 4 (Fallback): General case — sum of all shifts
             boolean firstTerm = true;
-            // For each term, construct the assembly:
-            // - The first positive term initializes x0 (the result)
-            // - The others are added or subtracted as appropriate
-            for (Term term : terms) {
-                // Prepare x1 = x << shift (or just x if shift=0)
-                if (term.shift == 0) {
-                    writer.write("    mov x1, x2\n"); // x1 = x
-                } else {
-                    writer.write("    lsl x1, x2, #" + term.shift + "\n"); // x1 = x << shift
-                }
+            out.write("    mov x3, x0    // save original x\n");
 
-                if (firstTerm && !term.isNegative) {
-                    // First positive term: initializes the result
-                    writer.write("    mov x0, x1\n");
-                    firstTerm = false;
-                } else if (term.isNegative) {
-                    // Negative term: subtract from current result
-                    writer.write("    sub x0, x0, x1\n");
-                } else {
-                    // Otherwise, add to the result
-                    writer.write("    add x0, x0, x1\n");
+            // Go through all bits of k and generate (x << bit) for each '1'
+            for (int bit = 31; bit >= 0; bit--) {
+                if (((k >> bit) & 1) == 1) {
+                    if (firstTerm) {
+                        out.write("    mov x0, x3    // first term\n");
+                        if (bit != 0) {
+                            out.write(String.format("    lsl x0, x0, #%d    // x * 2^%d\n", bit, bit));
+                        }
+                        firstTerm = false;
+                    } else {
+                        out.write("    mov x1, x3    // next term\n");
+                        if (bit != 0) {
+                            out.write(String.format("    lsl x1, x1, #%d    // x * 2^%d\n", bit, bit));
+                        }
+                        out.write("    add x0, x0, x1    // accumulate term\n");
+                    }
                 }
             }
+            out.write("    ret\n");
 
-            writer.write("    ret\n"); // Return result in x0
-            System.out.println("✅ kefel.s ARM64 file generated and optimized for k = " + k);
         } catch (IOException e) {
-            System.err.println("File write error: " + e.getMessage());
+            // If writing to kefel.s fails
+            System.err.println("Error creating kefel.s: " + e.getMessage());
         }
     }
 }
