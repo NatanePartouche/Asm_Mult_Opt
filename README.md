@@ -1,21 +1,5 @@
 # Kefel
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Java](https://img.shields.io/badge/Java-8+-blue.svg)](https://www.oracle.com/java/)
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Features](#features)
-3. [Prerequisites](#prerequisites)
-4. [Build & Generate](#build--generate)
-5. [Assembly & Linking](#assembly--linking)
-6. [Usage Example](#usage-example)
-7. [Repository Structure](#repository-structure)
-8. [Performance Notes](#performance-notes)
-9. [Contributing](#contributing)
-10. [License](#license)
-
 ## Overview
 
 `Kefel` is a Java utility that auto-generates an optimized x86-64 assembly routine named `kefel`. It multiplies a 64-bit integer (`%rdi`) by a constant `k` using the minimum possible instruction count.
