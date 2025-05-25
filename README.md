@@ -1,115 +1,103 @@
-# Optimized Multiplication Generator in ARM64 Assembly
+# Kefel
 
-## Project Overview
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-8+-blue.svg)](https://www.oracle.com/java/)
 
-This project automatically generates an ARM64 assembly file (`kefel.s`) that multiplies a 64-bit integer by a constant **k** using only shift (`lsl`), add (`add`), and subtract (`sub`) instructions. By avoiding the generic `mul` instruction, the generated code is faster and uses fewer cycles on ARM64 processors.
+## Table of Contents
 
-## Getting Started
+1. [Overview](#overview)
+2. [Features](#features)
+3. [Prerequisites](#prerequisites)
+4. [Build & Generate](#build--generate)
+5. [Assembly & Linking](#assembly--linking)
+6. [Usage Example](#usage-example)
+7. [Repository Structure](#repository-structure)
+8. [Performance Notes](#performance-notes)
+9. [Contributing](#contributing)
+10. [License](#license)
 
-1. Save your Java generator as `Kefel.java`.
-2. Compile the Java program:
+## Overview
 
-   ```sh
-   javac Kefel.java
-   ```
-3. Run the generator with your chosen constant (e.g., k=14):
+`Kefel` is a Java utility that auto-generates an optimized x86-64 assembly routine named `kefel`. It multiplies a 64-bit integer (`%rdi`) by a constant `k` using the minimum possible instruction count.
 
-   ```sh
-   java Kefel 14
-   ```
+## Features
 
-   This produces `kefel.s` in the current directory.
-4. Obtain the provided `test.c` driver from the course website.
-5. Compile both files into an executable:
+* **Zero & Power-of-Two**: Directly returns 0 or applies a single shift when appropriate.
+* **Two-Term Optimization**: Detects if `k = 2^a ± 2^b` and emits two shifts plus one add/subtract.
+* **Bit Decomposition**: Decomposes any integer into sum of powers of two for generic optimization.
+* **Standalone Generator**: Produces `kefel.s` without external dependencies beyond JDK and GNU toolchain.
 
-   ```sh
-   gcc test.c kefel.s -o test
-   ```
-6. Execute and verify the results:
+## Prerequisites
 
-   ```sh
-   ./test
-   ```
-7. Submit only the `Kefel.java` file.
-8. Clean up your directory:
+* **Java**: JDK 8 or later
+* **Assembler & Linker**: GNU `as` and `ld`, or `gcc`
 
-   ```sh
-   rm -f Kefel.class kefel.s test
-   ```
+## Build & Generate
 
-> The code can be tested on any 64-bit Unix system (Linux, macOS, etc.).
+```bash
+# Compile the Java generator
+javac Kefel.java
 
-## Implementation Details
-
-* The Java program reads a single integer argument **k**.
-* It outputs an ARM64 assembly file defining the function `kefel`, which:
-
-  * Accepts a 64-bit integer in register `x0`.
-  * Returns the product `k * x0` in register `x0`.
-
-## Optimization Rules
-
-1. **Single 1-bit**: if `k` is a power of two, use one shift.
-   *Example:* k=8 → `lsl x0, x0, #3`.
-2. **Two consecutive 1-bits**: sum of two shifts.
-   *Example:* k=6 → `(x << 2) + (x << 1)`.
-3. **Run of ≥3 consecutive 1-bits**: difference of two shifts.
-   *Example:* k=14 → `(x << 4) - (x << 1)`.
-4. **Fallback**: for all other bit patterns, express `k` as a sum of individual shifts, minimizing redundant `lsl #0` operations.
-5. **File header and label**: every `kefel.s` must start with:
-
-   ```asm
-   .section .text
-   .globl   kefel
-   kefel:
-       // Your optimized code here
-       ret
-   ```
-
-## ARM64 Assembly Examples
-
-### Non-optimized example for k = 14
-
-This version uses three shift/add steps:
-
-```asm
-.section .text
-.globl   kefel
-kefel:
-    // Compute 14*x by summing 8x + 4x + 2x:
-    mov x1, x0        // x1 = x
-    lsl x0, x0, #3    // x0 = x << 3 = 8x
-    mov x2, x1        // x2 = x
-    lsl x2, x2, #2    // x2 = x << 2 = 4x
-    add x0, x0, x2    // x0 = 12x
-    mov x2, x1        // x2 = x
-    lsl x2, x2, #1    // x2 = x << 1 = 2x
-    add x0, x0, x2    // x0 = 14x
-    ret
+# Generate assembly for k = 42 (as an example)
+java Kefel 42
+# Output: kefel.s
 ```
 
-### Optimized example for k = 14
+## Assembly & Linking
 
-This version factors 14 as 16 - 2:
+```bash
+# Assemble --> object file
+as --64 -o kefel.o kefel.s
 
-```asm
-.section .text
-.globl   kefel
-kefel:
-    mov x1, x0        // x1 = x
-    lsl x0, x0, #4    // x0 = x << 4 = 16x
-    lsl x1, x1, #1    // x1 = x << 1 = 2x
-    sub x0, x0, x1    // x0 = 16x - 2x = 14x
-    ret
+# Create shared library
+ld -shared -o libkefel.so kefel.o
+# Or with gcc:
+gcc -shared -fPIC -o libkefel.so kefel.o
 ```
 
-## Testing Recommendations
+## Usage Example
 
-* Test edge cases: k=0, k=1.
-* Verify powers of two (k=2, 4, 8, ...).
-* Try mixed patterns: k=3 (11₂), k=7 (111₂), k=13 (1101₂), k=21 (10101₂).
-* Ensure the result in `x0` matches a standard multiplication.
+1. **Sample C driver** (`test_kefel.c`):
 
----
+   ```c
+   #include <stdio.h>
+   extern long kefel(long x);
+   int main() {
+       long x = 7;
+       printf("kefel(%ld) = %ld\n", x, kefel(x));
+       return 0;
+   }
+   ```
+2. **Compile & Link**
 
-*Generated by Kefel.java*
+   ```bash
+   gcc -o test_kefel test_kefel.c -L. -lkefel -Wl,-rpath,.
+   ./test_kefel
+   # Output: kefel(7) = 294
+   ```
+
+## Repository Structure
+
+```
+├── Kefel.java       # Java source for the assembly generator
+├── test.c           # C sample driver
+└── README.md        # This documentation
+```
+
+## Performance Notes
+
+* For large `k`, two-term optimizations reduce instruction count significantly compared to naive loops.
+* Single-shift cases incur only 1 instruction (best case).
+* Fall-back bit decomposition uses at most `popcount(k)` additions plus shifts.
+
+## Contributing
+
+1. Fork the repo
+2. Create a new branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m "Add feature..."`
+4. Push: `git push origin feature/your-feature`
+5. Open a Pull Request with description and tests.
+
+## License
+
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
