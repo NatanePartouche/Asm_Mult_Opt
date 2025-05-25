@@ -81,7 +81,3 @@ gcc -shared -fPIC -o libkefel.so kefel.o
 3. Commit your changes: `git commit -m "Add feature..."`
 4. Push: `git push origin feature/your-feature`
 5. Open a Pull Request with description and tests.
-
-## License
-
-Distributed under the MIT License. See [LICENSE](LICENSE) for details.
